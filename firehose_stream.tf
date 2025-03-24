@@ -6,7 +6,7 @@ resource "aws_s3_bucket" "cloudwatch_metrics_firehose_bucket" {
 
 resource "aws_s3_bucket_acl" "cloudwatch_metrics_firehose_bucket_acl" {
   bucket = aws_s3_bucket.cloudwatch_metrics_firehose_bucket.id
-  acl    = "bucket-owner-full-control"
+  acl    = "private"
   depends_on = [
     aws_s3_bucket_ownership_controls.bucket_ownership_cloudwatch_firehose
   ]
