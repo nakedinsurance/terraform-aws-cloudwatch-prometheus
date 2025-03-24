@@ -81,7 +81,15 @@ data "aws_iam_policy_document" "assume_cross_account_role_policy" {
 
 resource "aws_iam_role_policy_attachment" "assume_cross_account_role" {
   role       = aws_iam_role.iam_for_lambda.name
-  policy_arn = data.aws_iam_policy_document.assume_cross_account_role_policy.arn
+  policy_arn = aws_iam_policy.assume_cross_account_role_policy.arn
+}
+
+resource "aws_iam_policy" "assume_cross_account_policy" {
+  name = "${var.aws_firehose_lambda_name}-assume-cross-account"
+  policy = data.aws_iam_policy_document.assume_cross_account_role_policy.json
+  tags = merge(var.tags, {
+    Name = "${var.aws_firehose_lambda_name}-assume-cross-account"
+  })
 }
 
 data "aws_iam_policy" "lambda_basic_execution_role_policy" {
