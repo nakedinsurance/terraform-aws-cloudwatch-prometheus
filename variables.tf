@@ -2,6 +2,14 @@ variable "vpc_id" {
   type        = string
   description = "The VPC to create the lambda in (this should have network access to the prometheusremote write endpoints)"
 }
+variable "region" {
+  type = string
+  description = "The region to create the lambda in"
+}
+variable "aws_amp_role_arn" {
+  type = string
+  description = "The role arn to assume to write to the prometheus remote write endpoints"
+}
 
 variable "subnet_ids" {
   type        = list(string)
@@ -29,9 +37,9 @@ variable "aws_firehose_lambda_name" {
   description = "The lambda name that will attached to put events in the s3 bucket output of the firehose stream"
 }
 
-variable "prometheus_endpoints" {
-  type        = list(string)
-  description = "A list of prometheus remote write endpoints to write metrics"
+variable "prometheus_endpoint" {
+  type        = string
+  description = "The prometheus remote write endpoint to write metrics"
 }
 
 variable "tags" {

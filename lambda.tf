@@ -9,36 +9,38 @@ resource "aws_lambda_function" "cloudwatch_metrics_firehose_prometheus_remote_wr
 
   runtime = "provided.al2023"
 
-  vpc_config {
-    subnet_ids = var.subnet_ids
+  # vpc_config {
+  #   subnet_ids = var.subnet_ids
 
-    security_group_ids = [aws_security_group.cloudwatch_metrics_firehose_prometheus_remote_write.id]
-  }
+  #   security_group_ids = [aws_security_group.cloudwatch_metrics_firehose_prometheus_remote_write.id]
+  # }
 
   environment {
     variables = {
-      PROMETHEUS_REMOTE_WRITE_URLS = join(",", var.prometheus_endpoints)
+      PROMETHEUS_REMOTE_WRITE_URL = var.prometheus_endpoint
+      AWS_AMP_ROLE_ARN = var.aws_amp_role_arn
+      PROMETHEUS_REGION = var.region
     }
   }
 
   tags = var.tags
 }
 
-resource "aws_security_group" "cloudwatch_metrics_firehose_prometheus_remote_write" {
-  name   = "${var.aws_firehose_lambda_name}-security-group"
-  vpc_id = var.vpc_id
+# resource "aws_security_group" "cloudwatch_metrics_firehose_prometheus_remote_write" {
+#   name   = "${var.aws_firehose_lambda_name}-security-group"
+#   vpc_id = var.vpc_id
 
-  tags = var.tags
-}
+#   tags = var.tags
+# }
 
-resource "aws_security_group_rule" "cloudwatch_metrics_firehose_prometheus_remote_write" {
-  security_group_id = aws_security_group.cloudwatch_metrics_firehose_prometheus_remote_write.id
-  type              = "egress"
-  from_port         = 0
-  to_port           = 0
-  protocol          = "all"
-  cidr_blocks       = ["0.0.0.0/0"]
-}
+# resource "aws_security_group_rule" "cloudwatch_metrics_firehose_prometheus_remote_write" {
+#   security_group_id = aws_security_group.cloudwatch_metrics_firehose_prometheus_remote_write.id
+#   type              = "egress"
+#   from_port         = 0
+#   to_port           = 0
+#   protocol          = "all"
+#   cidr_blocks       = ["0.0.0.0/0"]
+# }
 
 
 resource "aws_iam_role" "iam_for_lambda" {
@@ -63,26 +65,34 @@ EOF
   tags = var.tags
 }
 
-data "aws_iam_policy" "lambda_basic_execution_role_policy_vpc" {
-  arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole"
+# data "aws_iam_policy" "lambda_basic_execution_role_policy_vpc" {
+#   arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole"
 
-  tags = var.tags
-}
+#   tags = var.tags
+# }
 
 data "aws_iam_policy" "lambda_basic_execution_role_policy" {
   arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
 
   tags = var.tags
 }
+data "aws_iam_policy" "aps_remote_write_policy" {
+  arn = "arn:aws:iam::aws:policy/AmazonPrometheusRemoteWriteAccess"
 
-resource "aws_iam_role_policy_attachment" "vpc" {
-  role       = aws_iam_role.iam_for_lambda.name
-  policy_arn = data.aws_iam_policy.lambda_basic_execution_role_policy_vpc.arn
 }
+
+# resource "aws_iam_role_policy_attachment" "vpc" {
+#   role       = aws_iam_role.iam_for_lambda.name
+#   policy_arn = data.aws_iam_policy.lambda_basic_execution_role_policy_vpc.arn
+# }
 
 resource "aws_iam_role_policy_attachment" "execution" {
   role       = aws_iam_role.iam_for_lambda.name
   policy_arn = data.aws_iam_policy.lambda_basic_execution_role_policy.arn
+}
+resource "aws_iam_role_policy_attachment" "aps" {
+  role       = aws_iam_role.iam_for_lambda.name
+  policy_arn = data.aws_iam_policy.aps_remote_write_policy.arn
 }
 
 
