@@ -1,14 +1,14 @@
 
 resource "aws_cloudwatch_metric_stream" "main" {
-  name          = var.aws_cloudwatch_metric_stream_name
+  name          = var.stream_settings.metric_stream_name
   role_arn      = aws_iam_role.metric_stream_to_firehose.arn
   firehose_arn  = aws_kinesis_firehose_delivery_stream.cloudwatch_metrics_firehose_delivery_stream.arn
-  include_linked_accounts_metrics = var.include_linked_accounts_metrics
+  include_linked_accounts_metrics = var.stream_settings.include_linked_accounts_metrics
   output_format = "json"
 
 
   dynamic "include_filter" {
-    for_each = var.included_filters
+    for_each = var.stream_settings.metric_filters
     content {
       namespace = include_filter.value["namespace"]
       metric_names = include_filter.value["metric_names"]
@@ -19,7 +19,7 @@ resource "aws_cloudwatch_metric_stream" "main" {
 }
 
 resource "aws_iam_role" "metric_stream_to_firehose" {
-  name = "${var.aws_cloudwatch_metric_stream_name}-role"
+  name = "${var.stream_settings.metric_stream_name}-role"
 
   assume_role_policy = <<EOF
 {
@@ -41,7 +41,7 @@ EOF
 }
 
 resource "aws_iam_role_policy" "metric_stream_to_firehose" {
-  name = "${var.aws_cloudwatch_metric_stream_name}-firehose-policy"
+  name = "${var.stream_settings.metric_stream_name}-firehose-policy"
   role = aws_iam_role.metric_stream_to_firehose.id
 
   policy = <<EOF

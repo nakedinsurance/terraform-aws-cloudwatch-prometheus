@@ -1,45 +1,64 @@
-variable "vpc_id" {
-  type        = string
-  description = "The VPC to create the lambda in (this should have network access to the prometheusremote write endpoints)"
-}
 variable "region" {
   type = string
   description = "The region to create the lambda in"
 }
-variable "aws_amp_role_arn" {
-  type = string
-  description = "The role arn to assume to write to the prometheus remote write endpoints"
+variable "deploy_in_vpc" {
+  type = bool
+  description = "Whether to deploy the lambda in a VPC"
+  default = false
 }
 
-variable "subnet_ids" {
-  type        = list(string)
-  description = "The subnet ids the create the lambda in (these should have network access to the prometheus remote write endpoints)"
+variable "vpc_config" {
+  type = object({
+    vpc_id = string
+    subnet_ids = list(string)
+    security_group_ids = optional(list(string),[])
+  })
+  description = <<EOT
+  The VPC config to create the lambda in.
+  If deploy_in_vpc is false, this will be ignored.
+  If deploy_in_vpc is true, this will be used to create the lambda in the VPC.
 
+  vpc_id: The VPC to create the lambda in.
+  subnet_ids: The subnet ids to create the lambda in.
+  security_group_ids: (optional) The security group ids to use for the lambda. If not provided, a new security group will be created.
+  EOT
+  default = null
 }
 
-variable "aws_cloudwatch_metric_stream_name" {
-  type        = string
-  description = "The desired cloudwatch metric stream name that will be created"
+variable "stream_settings" {
+  type = object({
+    firehose_stream_name = string
+    metric_stream_name = string
+    s3_bucket_name = string
+    metric_filters = list(object({
+      namespace = string
+      metric_names = list(string)
+    }))
+    include_linked_accounts_metrics = bool
+  })
+  description = <<EOT
+  The settings for the stream to create.
+  firehose_stream_name: The name of the firehose stream to create.
+  metric_stream_name: The name of the cloudwatch metric stream to create.
+  s3_bucket_name: The name of the s3 bucket to create.
+  metric_filters: The list of metric filters to include in the stream.
+  include_linked_accounts_metrics: Whether to include linked account metrics in the stream.
+  EOT
 }
 
-variable "aws_firehose_stream_name" {
-  type        = string
-  description = "The desired firehose stream name that will be created and linked to the output of the cloudwatch metric stream"
-}
-
-variable "aws_firehose_s3_bucket_name" {
-  type        = string
-  description = "The s3 bucket name that will be the output of the firehose stream"
-}
-
-variable "aws_firehose_lambda_name" {
-  type        = string
-  description = "The lambda name that will attached to put events in the s3 bucket output of the firehose stream"
-}
-
-variable "prometheus_endpoint" {
-  type        = string
-  description = "The prometheus remote write endpoint to write metrics"
+variable "prometheus_settings"{
+  type = object({
+    lambda_name = string
+    writer_endpoint = string
+    role_arn = optional(string)
+  })
+  description = <<EOT
+  The prometheus settings to use for the lambda.
+  lambda_name: The name of the lambda to create.
+  writer_endpoint: The prometheus remote write endpoint to write metrics
+  role_arn: (optional) The role arn to assume to write to the prometheus remote write endpoints. If not provided, the lambda will use credentials from its execution role.
+  EOT
 }
 
 variable "tags" {
@@ -49,16 +68,5 @@ variable "tags" {
   default = {}
 }
 
-variable "include_linked_accounts_metrics" {
-  type = bool
-  description = "Enable cross-account metrics? Useful if configured on monitoring account."
-  default = false
-}
 
-variable "included_filters" {
-  type = list(object({
-    namespace = string
-    metric_names = list(string)
-  }))
-  description = "The list of included filters to include in the stream"
-}
+

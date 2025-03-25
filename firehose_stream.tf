@@ -1,5 +1,5 @@
 resource "aws_s3_bucket" "cloudwatch_metrics_firehose_bucket" {
-  bucket = var.aws_firehose_s3_bucket_name
+  bucket = var.stream_settings.s3_bucket_name
 
   tags = var.tags
 }
@@ -18,7 +18,7 @@ resource "aws_s3_bucket_lifecycle_configuration" "cloudwatch_metrics_firehose_re
 
 
 resource "aws_kinesis_firehose_delivery_stream" "cloudwatch_metrics_firehose_delivery_stream" {
-  name        = var.aws_firehose_stream_name
+  name        = var.stream_settings.firehose_stream_name
   destination = "extended_s3"
 
   extended_s3_configuration {
@@ -51,7 +51,7 @@ resource "aws_kinesis_firehose_delivery_stream" "cloudwatch_metrics_firehose_del
 }
 
 resource "aws_iam_role" "cloudwatch_metrics_firehose_role" {
-  name = "${var.aws_firehose_stream_name}-firehose-role"
+  name = "${var.stream_settings.firehose_stream_name}-firehose-role"
 
   assume_role_policy = <<EOF
 {
@@ -81,7 +81,7 @@ EOF
 }
 
 resource "aws_iam_role_policy" "cloudwatch_metrics_s3_policy" {
-  name = "${var.aws_firehose_stream_name}-firehose-s3-policy"
+  name = "${var.stream_settings.firehose_stream_name}-firehose-s3-policy"
   role = aws_iam_role.cloudwatch_metrics_firehose_role.id
 
   policy = <<EOF
@@ -109,7 +109,7 @@ EOF
 }
 
 resource "aws_iam_role_policy" "cloudwatch_metrics_firehose_lambda_policy" {
-  name = "${var.aws_firehose_stream_name}-firehose-lambda-policy"
+  name = "${var.stream_settings.firehose_stream_name}-firehose-lambda-policy"
   role = aws_iam_role.cloudwatch_metrics_firehose_role.id
 
   policy = <<EOF

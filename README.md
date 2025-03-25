@@ -37,35 +37,34 @@ This is a terraform module that does the same thing but connects to one of your 
 |------|------|
 | [aws_cloudwatch_log_group.logs](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/cloudwatch_log_group) | resource |
 | [aws_cloudwatch_metric_stream.main](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/cloudwatch_metric_stream) | resource |
+| [aws_iam_policy.assume_cross_account_policy](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/iam_policy) | resource |
 | [aws_iam_role.cloudwatch_metrics_firehose_role](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/iam_role) | resource |
 | [aws_iam_role.iam_for_lambda](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/iam_role) | resource |
 | [aws_iam_role.metric_stream_to_firehose](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/iam_role) | resource |
 | [aws_iam_role_policy.cloudwatch_metrics_firehose_lambda_policy](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/iam_role_policy) | resource |
 | [aws_iam_role_policy.cloudwatch_metrics_s3_policy](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/iam_role_policy) | resource |
 | [aws_iam_role_policy.metric_stream_to_firehose](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/iam_role_policy) | resource |
+| [aws_iam_role_policy_attachment.aps](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/iam_role_policy_attachment) | resource |
+| [aws_iam_role_policy_attachment.assume_cross_account_role](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/iam_role_policy_attachment) | resource |
 | [aws_iam_role_policy_attachment.execution](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/iam_role_policy_attachment) | resource |
 | [aws_iam_role_policy_attachment.vpc](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/iam_role_policy_attachment) | resource |
 | [aws_kinesis_firehose_delivery_stream.cloudwatch_metrics_firehose_delivery_stream](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/kinesis_firehose_delivery_stream) | resource |
 | [aws_lambda_function.cloudwatch_metrics_firehose_prometheus_remote_write](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/lambda_function) | resource |
 | [aws_s3_bucket.cloudwatch_metrics_firehose_bucket](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/s3_bucket) | resource |
-| [aws_s3_bucket_acl.cloudwatch_metrics_firehose_bucket_acl](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/s3_bucket_acl) | resource |
-| [aws_s3_bucket_ownership_controls.bucket_ownership_cloudwatch_firehose](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/s3_bucket_ownership_controls) | resource |
-| [aws_security_group.cloudwatch_metrics_firehose_prometheus_remote_write](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/security_group) | resource |
-| [aws_security_group_rule.cloudwatch_metrics_firehose_prometheus_remote_write](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/security_group_rule) | resource |
+| [aws_s3_bucket_lifecycle_configuration.cloudwatch_metrics_firehose_remove_after_10_days](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/s3_bucket_lifecycle_configuration) | resource |
+| [aws_security_group.this](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/security_group) | resource |
+| [aws_security_group_rule.this](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/security_group_rule) | resource |
 
 ## Inputs
 
 | Name | Description | Type | Default | Required |
 |------|-------------|------|---------|:--------:|
-| <a name="input_aws_cloudwatch_metric_stream_name"></a> [aws\_cloudwatch\_metric\_stream\_name](#input\_aws\_cloudwatch\_metric\_stream\_name) | The desired cloudwatch metric stream name that will be created | `string` | n/a | yes |
-| <a name="input_aws_firehose_lambda_name"></a> [aws\_firehose\_lambda\_name](#input\_aws\_firehose\_lambda\_name) | The lambda name that will attached to put events in the s3 bucket output of the firehose stream | `string` | n/a | yes |
-| <a name="input_aws_firehose_s3_bucket_name"></a> [aws\_firehose\_s3\_bucket\_name](#input\_aws\_firehose\_s3\_bucket\_name) | The s3 bucket name that will be the output of the firehose stream | `string` | n/a | yes |
-| <a name="input_aws_firehose_stream_name"></a> [aws\_firehose\_stream\_name](#input\_aws\_firehose\_stream\_name) | The desired firehose stream name that will be created and linked to the output of the cloudwatch metric stream | `string` | n/a | yes |
-| <a name="input_included_aws_namespaces"></a> [included\_aws\_namespaces](#input\_included\_aws\_namespaces) | The list of AWS Namespaces to include in the stream | `list(string)` | n/a | yes |
-| <a name="input_prometheus_endpoints"></a> [prometheus\_endpoints](#input\_prometheus\_endpoints) | A list of prometheus remote write endpoints to write metrics | `list(string)` | n/a | yes |
-| <a name="input_subnet_ids"></a> [subnet\_ids](#input\_subnet\_ids) | The subnet ids the create the lambda in (these should have network access to the prometheus remote write endpoints) | `list(string)` | n/a | yes |
+| <a name="input_deploy_in_vpc"></a> [deploy\_in\_vpc](#input\_deploy\_in\_vpc) | Whether to deploy the lambda in a VPC | `bool` | `false` | no |
+| <a name="input_prometheus_settings"></a> [prometheus\_settings](#input\_prometheus\_settings) | The prometheus settings to use for the lambda.<br/>  lambda\_name: The name of the lambda to create.<br/>  writer\_endpoint: The prometheus remote write endpoint to write metrics<br/>  role\_arn: (optional) The role arn to assume to write to the prometheus remote write endpoints. If not provided, the lambda will use credentials from its execution role. | <pre>object({<br/>    lambda_name = string<br/>    writer_endpoint = string<br/>    role_arn = optional(string)<br/>  })</pre> | n/a | yes |
+| <a name="input_region"></a> [region](#input\_region) | The region to create the lambda in | `string` | n/a | yes |
+| <a name="input_stream_settings"></a> [stream\_settings](#input\_stream\_settings) | The settings for the stream to create.<br/>  firehose\_stream\_name: The name of the firehose stream to create.<br/>  metric\_stream\_name: The name of the cloudwatch metric stream to create.<br/>  s3\_bucket\_name: The name of the s3 bucket to create.<br/>  metric\_filters: The list of metric filters to include in the stream.<br/>  include\_linked\_accounts\_metrics: Whether to include linked account metrics in the stream. | <pre>object({<br/>    firehose_stream_name = string<br/>    metric_stream_name = string<br/>    s3_bucket_name = string<br/>    metric_filters = list(object({<br/>      namespace = string<br/>      metric_names = list(string)<br/>    }))<br/>    include_linked_accounts_metrics = bool<br/>  })</pre> | n/a | yes |
 | <a name="input_tags"></a> [tags](#input\_tags) | The standard tags to apply to every AWS resource. | `map(string)` | `{}` | no |
-| <a name="input_vpc_id"></a> [vpc\_id](#input\_vpc\_id) | The VPC to create the lambda in (this should have network access to the prometheusremote write endpoints) | `string` | n/a | yes |
+| <a name="input_vpc_config"></a> [vpc\_config](#input\_vpc\_config) | The VPC config to create the lambda in.<br/>  If deploy\_in\_vpc is false, this will be ignored.<br/>  If deploy\_in\_vpc is true, this will be used to create the lambda in the VPC.<br/><br/>  vpc\_id: The VPC to create the lambda in.<br/>  subnet\_ids: The subnet ids to create the lambda in.<br/>  security\_group\_ids: (optional) The security group ids to use for the lambda. If not provided, a new security group will be created. | <pre>object({<br/>    vpc_id = string<br/>    subnet_ids = list(string)<br/>    security_group_ids = optional(list(string),[])<br/>  })</pre> | `null` | no |
 <!-- END_TF_DOCS -->
 
 ## Thank you
