@@ -2,38 +2,27 @@ package main
 
 import (
 	"bytes"
-	"cmp"
 	"context"
 	"encoding/json"
-	"fmt"
-	"io"
+	"github.com/aws/aws-sdk-go/aws/credentials"
+	"github.com/aws/aws-sdk-go/aws/credentials/stscreds"
+	"github.com/prometheus/prometheus/prompb"
 	"log"
 	"net/http"
 	"os"
 	"regexp"
-	"slices"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/aws/aws-lambda-go/events"
 	"github.com/aws/aws-lambda-go/lambda"
+	"github.com/aws/aws-sdk-go/aws"
+	"github.com/aws/aws-sdk-go/aws/session"
+	v4 "github.com/aws/aws-sdk-go/aws/signer/v4"
 	"github.com/gogo/protobuf/proto"
 	"github.com/golang/snappy"
-	"github.com/prometheus/prometheus/prompb"
 )
-
-func sortLabelsFunc(a, b *prompb.Label) int {
-	return cmp.Compare(strings.ToLower(a.Name), strings.ToLower(b.Name))
-}
-
-type Dimensions = map[string]string
-
-type Value struct {
-	Count float64 `json:"count"`
-	Sum   float64 `json:"sum"`
-	Max   float64 `json:"max"`
-	Min   float64 `json:"min"`
-}
 
 type MetricStreamData struct {
 	MetricStreamName string     `json:"metric_stream_name"`
@@ -47,14 +36,88 @@ type MetricStreamData struct {
 	Unit             string     `json:"unit"`
 }
 
-type ValueType string
+type Dimensions = map[string]interface{}
+
+//	type Dimensions struct {
+//		Class    string `json:"Class"`
+//		Resource string `json:"Resource"`
+//		Service  string `json:"Service"`
+//		Type     string `json:"Type"`
+//	}
+type Value struct {
+	Count float64 `json:"count"`
+	Sum   float64 `json:"sum"`
+	Max   float64 `json:"max"`
+	Min   float64 `json:"min"`
+}
+
+type Values string
+
+var rex = regexp.MustCompile("(\\w+):(\\w+)")
 
 const (
-	Count ValueType = "count"
-	Sum             = "sum"
-	Max             = "max"
-	Min             = "min"
+	Count Values = "count"
+	Sum          = "sum"
+	Max          = "max"
+	Min          = "min"
 )
+
+func HandleRequest(ctx context.Context, firehoseEvent events.KinesisFirehoseEvent) (events.KinesisFirehoseResponse, error) {
+
+	var response events.KinesisFirehoseResponse
+	var timeSeries []prompb.TimeSeries
+	// These are the 4 value types from Cloudwatch, each of which map to a Prometheus Gauge
+	values := []Values{Count, Max, Min, Sum}
+
+	for _, record := range firehoseEvent.Records {
+
+		splitRecord := strings.Split(string(record.Data), string('\n'))
+		for _, x := range splitRecord {
+
+			// The Records includes an empty new line at the last position which becomes "" after parsing. Skipping over the empty string.
+			if x == "" {
+				continue
+			}
+			var metricStreamData MetricStreamData
+			err := json.Unmarshal([]byte(x), &metricStreamData)
+			if err != nil {
+				panic(err)
+			}
+
+			// For each metric, the labels + valuetype is the __name__ of the sample, and the corresponding single sample value is used to create the timeseries.
+			for _, value := range values {
+				var samples []prompb.Sample
+				currentLabels := handleAddLabels(value, metricStreamData.MetricName, metricStreamData.Namespace, metricStreamData.Dimensions)
+				currentSamples := handleAddSamples(value, metricStreamData.Value, metricStreamData.Timestamp)
+				samples = append(samples, currentSamples)
+
+				singleTimeSeries := prompb.TimeSeries{
+					Labels:  currentLabels,
+					Samples: samples,
+				}
+				timeSeries = append(timeSeries, singleTimeSeries)
+			}
+		}
+
+		// No transformation occurs, just send OK response back to Kinesis
+		var transformedRecord events.KinesisFirehoseResponseRecord
+		transformedRecord.RecordID = record.RecordID
+		transformedRecord.Result = events.KinesisFirehoseTransformedStateOk
+		transformedRecord.Data = record.Data
+
+		response.Records = append(response.Records, transformedRecord)
+	}
+
+	_, err := createWriteRequestAndSendToAPS(timeSeries)
+	if err != nil {
+		panic(err)
+	}
+	return response, nil
+}
+
+func main() {
+	lambda.Start(HandleRequest)
+}
 
 // Taken directly from YACE: https://github.com/nerdswords/yet-another-cloudwatch-exporter/blob/1c7b3d7b7b64ce93bb4a27d8ef836e0c2b96b8e7/pkg/prometheus.go#L139
 func sanitize(text string) string {
@@ -74,219 +137,194 @@ func sanitize(text string) string {
 		">", "_",
 		"%", "_percent",
 	)
-
 	return replacer.Replace(text)
 }
 
-func toSnakeCase(str string) string {
-	matchFirstCap := regexp.MustCompile("(.)([A-Z][a-z]+)")
-	matchAllCap := regexp.MustCompile("([a-z0-9])([A-Z])")
+func handleAddLabels(valueType Values, metricName string, namespace string, dimensions Dimensions) []prompb.Label {
 
-	snake := matchFirstCap.ReplaceAllString(str, "${1}_${2}")
-	snake = matchAllCap.ReplaceAllString(snake, "${1}_${2}")
+	var labels []prompb.Label
 
-	return strings.ToLower(snake)
-}
-
-func createMetricNameLabels(metricName string, namespace string, valueType ValueType, region string, account string) []*prompb.Label {
-	var labels []*prompb.Label
-
-	if !strings.HasPrefix(namespace, "AWS/") {
-		namespace = "aws_custom_" + namespace
-	}
-
-	metricNameLabel := &prompb.Label{
-		Name:  "__name__",
-		Value: strings.ToLower(sanitize(namespace) + "_" + sanitize(toSnakeCase(metricName)) + "_" + sanitize(string(valueType))),
-	}
-	labels = append(labels, metricNameLabel)
-	regionLabel := &prompb.Label{
-		Name:  "region",
-		Value: region,
-	}
-	labels = append(labels, regionLabel)
-	accountLabel := &prompb.Label{
-		Name:  "account",
-		Value: sanitize(account),
-	}
-	labels = append(labels, accountLabel)
-	slices.SortFunc(labels, sortLabelsFunc)
-
-	return labels
-}
-
-func createDimensionLabels(dimensions Dimensions) []*prompb.Label {
-	var labels []*prompb.Label
-
-	// for all dimensions in dimensions map, create a label with the dimension name and value
-	// if element is not "" then create a label with the dimension name and value
-	for key, value := range dimensions {
-		if value != "" {
-			dimensionLabel := &prompb.Label{
-				Name:  sanitize(toSnakeCase(key)),
-				Value: value,
-			}
-			labels = append(labels, dimensionLabel)
-		}
-	}
-	slices.SortFunc(labels, sortLabelsFunc)
-	return labels
-}
-
-func handleAddLabels(valueType ValueType, metricName string, namespace string, dimensions Dimensions, region string, account string) []*prompb.Label {
-	var labels []*prompb.Label
-
-	metricNameLabels := createMetricNameLabels(metricName, namespace, valueType, region, account)
+	metricNameLabel := createMetricNameLabel(metricName, valueType)
+	namespaceLabel := createNamespaceLabel(namespace)
 	dimensionLabels := createDimensionLabels(dimensions)
+	awsAccountLabels := createExtraLabels(os.Getenv("EXTRA_LABELS"))
 	labels = append(labels, dimensionLabels...)
-	labels = append(labels, metricNameLabels...)
+	labels = append(labels, awsAccountLabels...)
+	labels = append(labels, metricNameLabel, namespaceLabel)
 
-	slices.SortFunc(labels, sortLabelsFunc)
 	return labels
 }
 
-func handleAddSamples(valueType ValueType, value Value, timestamp int64) prompb.Sample {
-	var val float64
-
+func handleAddSamples(valueType Values, value Value, timestamp int64) prompb.Sample {
+	var sample prompb.Sample
 	switch valueType {
 	case Count:
-		val = value.Count
+		sample = createCountSample(value, timestamp)
 	case Min:
-		val = value.Min
+		sample = createMinSample(value, timestamp)
 	case Max:
-		val = value.Max
+		sample = createMaxSample(value, timestamp)
 	case Sum:
-		val = value.Sum
+		sample = createSumSample(value, timestamp)
 	}
-
-	return prompb.Sample{
-		Value:     val,
-		Timestamp: timestamp,
-	}
+	return sample
 }
 
-func createWriteRequestAndSendToAPS(timeseries []*prompb.TimeSeries) error {
+func createMetricNameLabel(metricName string, valueType Values) prompb.Label {
+	metricNameLabel := prompb.Label{
+		Name:  "__name__",
+		Value: sanitize(metricName) + "_" + string(valueType),
+	}
+	return metricNameLabel
+}
+
+func createNamespaceLabel(namespace string) prompb.Label {
+	namespaceLabel := prompb.Label{
+		Name:  "namespace",
+		Value: sanitize(namespace),
+	}
+	return namespaceLabel
+}
+
+func createExtraLabels(labelsFromEnv string) []prompb.Label {
+	var labels []prompb.Label
+
+	data := rex.FindAllStringSubmatch(labelsFromEnv, -1)
+
+	// create one label for each kev-value
+	for _, kv := range data {
+		dimLabel := prompb.Label{
+			Name:  sanitize(kv[1]),
+			Value: sanitize(kv[2]),
+		}
+		labels = append(labels, dimLabel)
+	}
+
+	return labels
+}
+
+func createDimensionLabels(dimensions Dimensions) []prompb.Label {
+	var labels []prompb.Label
+
+	// create one label for each dimension
+	for key, value := range dimensions {
+		dimLabel := prompb.Label{
+			Name:  sanitize(key),
+			Value: sanitize(value.(string)),
+		}
+		labels = append(labels, dimLabel)
+	}
+
+	return labels
+}
+
+func createSumSample(value Value, timestamp int64) prompb.Sample {
+	sumSample := prompb.Sample{
+		Value:     value.Sum,
+		Timestamp: timestamp,
+	}
+	return sumSample
+}
+
+func createCountSample(value Value, timestamp int64) prompb.Sample {
+	countSample := prompb.Sample{
+		Value:     value.Count,
+		Timestamp: timestamp,
+	}
+	return countSample
+}
+
+func createMaxSample(value Value, timestamp int64) prompb.Sample {
+	maxSample := prompb.Sample{
+		Value:     value.Max,
+		Timestamp: timestamp,
+	}
+	return maxSample
+}
+
+func createMinSample(value Value, timestamp int64) prompb.Sample {
+	minSample := prompb.Sample{
+		Value:     value.Min,
+		Timestamp: timestamp,
+	}
+	return minSample
+}
+
+func createWriteRequestAndSendToAPS(timeseries []prompb.TimeSeries) (*http.Response, error) {
 	writeRequest := &prompb.WriteRequest{
 		Timeseries: timeseries,
 	}
 
 	body := encodeWriteRequestIntoProtoAndSnappy(writeRequest)
-	err := sendRequestToAPS(body)
-
-	return err
+	response, err := sendRequestToAPS(body)
+	return response, err
 }
 
 func encodeWriteRequestIntoProtoAndSnappy(writeRequest *prompb.WriteRequest) *bytes.Reader {
 	data, err := proto.Marshal(writeRequest)
+
 	if err != nil {
 		panic(err)
 	}
 
 	encoded := snappy.Encode(nil, data)
-
-	return bytes.NewReader(encoded)
+	body := bytes.NewReader(encoded)
+	return body
 }
 
-func sendRequest(url string, bodyBytes []byte) error {
-	req, err := http.NewRequest("POST", url, bytes.NewBuffer(bodyBytes))
+func roleSessionName() string {
+	suffix, err := os.Hostname()
+
 	if err != nil {
-		return err
+		now := time.Now().Unix()
+		suffix = strconv.FormatInt(now, 10)
 	}
 
-	netClient := &http.Client{Timeout: time.Second * 5}
-	resp, err := netClient.Do(req)
+	return "aws-sigv4-proxy-" + suffix
+}
+
+func sendRequestToAPS(body *bytes.Reader) (*http.Response, error) {
+	// Create an HTTP request from the body content and set necessary parameters.
+	req, err := http.NewRequest("POST", os.Getenv("PROMETHEUS_REMOTE_WRITE_URL"), body)
 	if err != nil {
-		return err
+		panic(err)
 	}
 
-	if resp.StatusCode >= 400 {
-		bodyBytes, err := io.ReadAll(resp.Body)
-		if err != nil {
-			log.Fatal(err)
-		}
+	sess, _ := session.NewSession(&aws.Config{
+		Region: aws.String(os.Getenv("AWS_REGION")),
+	})
 
-		bodyString := string(bodyBytes)
+	roleArn := os.Getenv("AWS_AMP_ROLE_ARN")
 
-		return fmt.Errorf("Error: statuscode %d sending data to endpoint: %s, %s", resp.StatusCode, url, bodyString)
+	var awsCredentials *credentials.Credentials
+	if roleArn != "" {
+		awsCredentials = stscreds.NewCredentials(sess, roleArn, func(p *stscreds.AssumeRoleProvider) {
+			p.RoleSessionName = roleSessionName()
+		})
+	} else {
+		awsCredentials = sess.Config.Credentials
 	}
 
-	return nil
-}
+	signer := v4.NewSigner(awsCredentials)
 
-func sendRequestToAPS(body *bytes.Reader) error {
-	bodyBytes, _ := io.ReadAll(body)
-	var errors []string
-	endpoints := strings.Split(os.Getenv("PROMETHEUS_REMOTE_WRITE_URLS"), ",")
+	req.Header.Set("Content-Type", "application/x-protobuf")
+	req.Header.Set("Content-Encoding", "snappy")
+	req.Header.Set("X-Prometheus-Remote-Write-Version", "0.1.0")
 
-	for _, url := range endpoints {
-		err := sendRequest(url, bodyBytes)
-		if err != nil {
-			errors = append(errors, err.Error())
-		}
+	_, err = signer.Sign(req, body, "aps", os.Getenv("PROMETHEUS_REGION"), time.Now())
+
+	if err != nil {
+		panic(err)
 	}
 
-	if len(errors) > 0 {
-		return fmt.Errorf(strings.Join(errors, ","))
+	resp, err := http.DefaultClient.Do(req)
+
+	if resp.StatusCode != http.StatusOK {
+		log.Println("Request to AMP failed with status: ", resp.StatusCode)
 	}
 
-	return nil
-}
-
-func timeSeriesFrom(records []events.KinesisFirehoseEventRecord) (events.KinesisFirehoseResponse, []*prompb.TimeSeries) {
-	var response events.KinesisFirehoseResponse
-	var timeSeries []*prompb.TimeSeries
-	// These are the 4 value types from Cloudwatch, each of which map to a Prometheus Gauge
-	values := []ValueType{Count, Max, Min, Sum}
-
-	for _, record := range records {
-		splitRecord := strings.Split(string(record.Data), "\n")
-
-		for _, recordStr := range splitRecord {
-			// The Records includes an empty new line at the last position which becomes "" after parsing. Skipping over the empty string.
-			if recordStr == "" {
-				continue
-			}
-
-			var metricStreamData MetricStreamData
-			if err := json.Unmarshal([]byte(recordStr), &metricStreamData); err != nil {
-				log.Printf("WARN: Failed parsing record %s", recordStr)
-				continue
-			}
-
-			// For each metric, the labels + valuetype is the __name__ of the sample, and the corresponding single sample value is used to create the timeseries.
-			for _, value := range values {
-				var samples []prompb.Sample
-				currentLabels := handleAddLabels(value, metricStreamData.MetricName, metricStreamData.Namespace, metricStreamData.Dimensions, metricStreamData.Region, metricStreamData.AccountID)
-				currentSamples := handleAddSamples(value, metricStreamData.Value, metricStreamData.Timestamp)
-				samples = append(samples, currentSamples)
-
-				singleTimeSeries := &prompb.TimeSeries{
-					Labels:  currentLabels,
-					Samples: samples,
-				}
-
-				timeSeries = append(timeSeries, singleTimeSeries)
-			}
-		}
-
-		// No transformation occurs, just send OK response back to Kinesis
-		var transformedRecord events.KinesisFirehoseResponseRecord
-		transformedRecord.RecordID = record.RecordID
-		transformedRecord.Result = events.KinesisFirehoseTransformedStateOk
-		transformedRecord.Data = record.Data
-
-		response.Records = append(response.Records, transformedRecord)
+	if err != nil {
+		panic(err)
 	}
-
-	return response, timeSeries
-}
-
-func handleRequest(ctx context.Context, evnt events.KinesisFirehoseEvent) (events.KinesisFirehoseResponse, error) {
-	response, timeSeries := timeSeriesFrom(evnt.Records)
-
-	return response, createWriteRequestAndSendToAPS(timeSeries)
-}
-
-func main() {
-	lambda.Start(handleRequest)
+	return resp, err
 }
