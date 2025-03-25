@@ -36,6 +36,8 @@ variable "stream_settings" {
       metric_names = list(string)
     }))
     include_linked_accounts_metrics = bool
+    buffer_size_in_mb = optional(string, "1")
+    buffer_interval_in_seconds = optional(string, "300")
   })
   description = <<EOT
   The settings for the stream to create.
@@ -44,6 +46,8 @@ variable "stream_settings" {
   s3_bucket_name: The name of the s3 bucket to create.
   metric_filters: The list of metric filters to include in the stream.
   include_linked_accounts_metrics: Whether to include linked account metrics in the stream.
+  buffer_size_in_mb: (optional) The buffer size in mb for the lambda. Default is 1.
+  buffer_interval_in_seconds: (optional) The buffer interval in seconds for the lambda. Default is 300.
   EOT
 }
 
