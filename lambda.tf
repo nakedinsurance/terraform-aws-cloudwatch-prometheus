@@ -1,7 +1,7 @@
 resource "aws_lambda_function" "cloudwatch_metrics_firehose_prometheus_remote_write" {
   filename         = "${path.module}/lambda_code/payload.zip"
   source_code_hash = filebase64sha256("${path.module}/lambda_code/payload.zip")
-  function_name    = var.stream_settings.lambda_name
+  function_name    = var.prometheus_settings.lambda_name
   role             = aws_iam_role.iam_for_lambda.arn
   handler          = "main"
   timeout          = 60
@@ -19,8 +19,8 @@ resource "aws_lambda_function" "cloudwatch_metrics_firehose_prometheus_remote_wr
 
   environment {
     variables = {
-      PROMETHEUS_REMOTE_WRITE_URL = var.stream_settings.prometheus_settings.writer_endpoint
-      AWS_AMP_ROLE_ARN = var.stream_settings.prometheus_settings.role_arn
+      PROMETHEUS_REMOTE_WRITE_URL = var.prometheus_settings.writer_endpoint
+      AWS_AMP_ROLE_ARN = var.prometheus_settings.role_arn
       PROMETHEUS_REGION = var.region
     }
   }
@@ -30,7 +30,7 @@ resource "aws_lambda_function" "cloudwatch_metrics_firehose_prometheus_remote_wr
 
 resource "aws_security_group" "this" {
   count = var.deploy_in_vpc && length(try(var.vpc_config.security_group_ids, [])) == 0 ? 1 : 0
-  name   = "${var.stream_settings.lambda_name}-security-group"
+  name   = "${var.prometheus_settings.lambda_name}-security-group"
   vpc_id = var.vpc_config.vpc_id
 
   tags = var.tags
@@ -48,7 +48,7 @@ resource "aws_security_group_rule" "this" {
 
 
 resource "aws_iam_role" "iam_for_lambda" {
-  name = "${var.stream_settings.lambda_name}-lambda-role"
+  name = "${var.prometheus_settings.lambda_name}-lambda-role"
 
   assume_role_policy = <<EOF
 {
@@ -79,7 +79,7 @@ data "aws_iam_policy_document" "assume_cross_account_role_policy" {
   statement {
     effect = "Allow"
     actions = ["sts:AssumeRole"]
-    resources = [var.stream_settings.prometheus_settings.role_arn]
+    resources = [var.prometheus_settings.role_arn]
   }
 }
 
@@ -89,10 +89,10 @@ resource "aws_iam_role_policy_attachment" "assume_cross_account_role" {
 }
 
 resource "aws_iam_policy" "assume_cross_account_policy" {
-  name = "${var.stream_settings.lambda_name}-assume-cross-account"
+  name = "${var.prometheus_settings.lambda_name}-assume-cross-account"
   policy = data.aws_iam_policy_document.assume_cross_account_role_policy.json
   tags = merge(var.tags, {
-    Name = "${var.stream_settings.lambda_name}-assume-cross-account"
+    Name = "${var.prometheus_settings.lambda_name}-assume-cross-account"
   })
 }
 
