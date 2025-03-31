@@ -109,7 +109,7 @@ data "aws_iam_policy" "aps_remote_write_policy" {
 resource "aws_iam_role_policy_attachment" "vpc" {
   count = var.deploy_in_vpc ? 1 : 0
   role       = aws_iam_role.iam_for_lambda.name
-  policy_arn = data.aws_iam_policy.lambda_basic_execution_role_policy_vpc.arn
+  policy_arn = data.aws_iam_policy.lambda_basic_execution_role_policy_vpc[0].arn
 }
 
 resource "aws_iam_role_policy_attachment" "execution" {
